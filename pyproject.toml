@@ -7,7 +7,7 @@ name = "bga-turn-bot"
 version = "0.1.0"
 description = "Self-hosted Discord bot that watches public Board Game Arena tables in spectator mode."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {file = "LICENSE"}
 dependencies = [
     "discord.py>=2.4.0,<3.0.0",
