@@ -7,7 +7,7 @@ Runs on a server or VM you control. Connects to BGA in spectator mode (no BGA lo
 ## Requirements
 
 - Python 3.10 or newer
-- A Discord bot token (free, from the Discord Developer Portal)
+- A Discord bot token: create one at [discord.com/developers/applications](https://discord.com/developers/applications). Go to your application, open the **Bot** tab, click **Reset Token**, and copy the value into `DISCORD_TOKEN` in your `.env`. When generating the invite URL, enable the `bot` and `applications.commands` scopes and grant these permissions: **View Channels**, **Send Messages**, **Embed Links**, **Read Message History**. No privileged intents are required.
 - A server or VM that stays online (e.g. Google Cloud e2-micro free tier, Oracle Cloud free tier, Railway)
 
 ## Setup
