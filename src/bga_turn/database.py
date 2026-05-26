@@ -350,6 +350,23 @@ class Database:
             )
             self._connection.commit()
 
+    def update_subscription_channel(self, subscription_id: int, channel_id: str) -> None:
+        now = utc_now_iso()
+        with self._lock:
+            self._connection.execute(
+                "UPDATE watch_subscriptions SET channel_id = ?, updated_at = ? WHERE subscription_id = ?",
+                (channel_id, now, subscription_id),
+            )
+            self._connection.commit()
+
+    def set_notification_flags(self, subscription_id: int, flags: int) -> None:
+        with self._lock:
+            self._connection.execute(
+                "UPDATE watch_subscriptions SET notification_flags = ? WHERE subscription_id = ?",
+                (flags, subscription_id),
+            )
+            self._connection.commit()
+
     def _ensure_watch_subscription_columns(self) -> None:
         existing_columns = self._column_names("watch_subscriptions")
         if "table_url" not in existing_columns:
@@ -358,6 +375,8 @@ class Database:
             self._connection.execute("ALTER TABLE watch_subscriptions ADD COLUMN base_url TEXT")
         if "gameserver" not in existing_columns:
             self._connection.execute("ALTER TABLE watch_subscriptions ADD COLUMN gameserver TEXT")
+        if "notification_flags" not in existing_columns:
+            self._connection.execute("ALTER TABLE watch_subscriptions ADD COLUMN notification_flags INTEGER NOT NULL DEFAULT 7")
 
     def _ensure_watch_state_columns(self) -> None:
         existing_columns = self._column_names("watch_states")
@@ -517,6 +536,7 @@ class Database:
                 ws.guild_id,
                 ws.channel_id,
                 ws.created_by_discord_user_id,
+                COALESCE(ws.notification_flags, 7) AS notification_flags,
                 COALESCE(st.last_packet_id, 1) AS last_packet_id,
                 COALESCE(st.last_waiting_ids, '[]') AS last_waiting_ids,
                 COALESCE(st.last_player_names, '{}') AS last_player_names,
@@ -542,4 +562,5 @@ class Database:
             player_names=json_loads_dict(row["last_player_names"]),
             is_initialized=bool(row["is_initialized"]),
             game_name=row["game_name"],
+            notification_flags=int(row["notification_flags"]),
         )

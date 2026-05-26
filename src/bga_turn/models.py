@@ -10,6 +10,12 @@ class LinkedUser:
     bga_player_name: str
 
 
+NOTIFY_TURN: int = 1   # "you're up!" turn notification
+NOTIFY_RECAP: int = 2  # "X just completed their turn" line
+NOTIFY_FINAL: int = 4  # game-over results announcement
+NOTIFY_ALL: int = NOTIFY_TURN | NOTIFY_RECAP | NOTIFY_FINAL
+
+
 @dataclass(slots=True)
 class WatchSubscription:
     subscription_id: int
@@ -25,6 +31,7 @@ class WatchSubscription:
     player_names: dict[str, str]
     is_initialized: bool
     game_name: str | None
+    notification_flags: int = NOTIFY_ALL
 
 
 @dataclass(slots=True)
