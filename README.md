@@ -105,7 +105,6 @@ BGA_DB_PATH=bga_bot.db
 BGA_WS_URL=wss://ws-x1.boardgamearena.com/connection/websocket
 BGA_ENABLE_TABLEINFOS_FALLBACK=0
 LOG_LEVEL=INFO
-BOT_LANG=EN
 ```
 
 ### `.env` variables
@@ -118,7 +117,6 @@ BOT_LANG=EN
 - `BGA_WS_URL`: public BGA websocket endpoint
 - `BGA_ENABLE_TABLEINFOS_FALLBACK`: set to `1` to re-enable the legacy HTTP tableinfos fallback for end-of-game detection (disabled by default)
 - `LOG_LEVEL`: `INFO` for normal use, `DEBUG` to capture raw BGA event data
-- `BOT_LANG`: `EN` (default) or `FR`
 
 ### Discord setup
 
