@@ -830,6 +830,24 @@ class BgaMonitor:
         player_id_label = linked_user.bga_player_id or player_id
         return f"<@{linked_user.discord_user_id}> {player_label} ({player_id_label})"
 
+    @classmethod
+    def _format_player_mention(
+        cls,
+        player_id: str,
+        player_names: dict[str, str],
+        linked_users_by_bga_id: dict[str, LinkedUser],
+        linked_users_by_name: dict[str, LinkedUser],
+    ) -> str:
+        """Returns just the @mention if linked, or BGA display name if not."""
+        linked_user = linked_users_by_bga_id.get(player_id)
+        if linked_user is None:
+            player_name = player_names.get(player_id, "").strip()
+            if player_name:
+                linked_user = linked_users_by_name.get(player_name.casefold())
+        if linked_user is not None:
+            return f"<@{linked_user.discord_user_id}>"
+        return player_names.get(player_id, player_id)
+
     @staticmethod
     def _select_previous_waiting_ids(subscriptions: list[WatchSubscription]) -> list[str]:
         initialized_subscriptions = [item for item in subscriptions if item.is_initialized]
