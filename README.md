@@ -1,4 +1,4 @@
-# BGA Discord Turn Bot
+# Board Game Arena Discord Bot
 
 A Discord bot that @mentions players when it's their turn in a Board Game Arena game, and posts final scores when the game ends.
 
@@ -11,7 +11,7 @@ Runs on a server or VM you control. Connects to BGA in spectator mode (no BGA lo
   1. Click **New Application**, give it a name, then go to the **Bot** tab.
   2. Click **Reset Token** and copy the value into `DISCORD_TOKEN` in your `.env`.
   3. To invite the bot to your server, go to **Installation** (or **OAuth2 > URL Generator**), enable the `bot` and `applications.commands` scopes, and grant these permissions: **View Channels**, **Send Messages**, **Embed Links**, **Read Message History**. No privileged intents are required.
-  4. Copy the generated URL, open it in a browser, and select your server.
+  4. Copy the generated URL, open it in a browser, and select your server. You need the **Manage Server** permission on that server to add a bot. If you don't see your server in the list, you don't have that permission.
 - A server or VM that stays online (e.g. Google Cloud e2-micro free tier, Oracle Cloud free tier, Railway)
 
 ## Setup
