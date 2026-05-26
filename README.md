@@ -28,7 +28,7 @@ python -m bga_turn >> bga-bot.log 2>&1 &
 | Variable | Required | Description |
 |---|---|---|
 | `DISCORD_TOKEN` | Yes | Bot token from the Discord Developer Portal |
-| `DISCORD_GUILD_ID` | Recommended | Your server ID. Required for instant slash command sync |
+| `DISCORD_GUILD_ID` | Recommended | Your server ID. Required for instant slash command sync. To find it: in Discord open **Settings > Advanced** and turn on **Developer Mode**, then right-click your server name and click **Copy Server ID**. |
 | `DISCORD_CLEAR_GLOBAL_COMMANDS` | No | Set to `1` once to clear stale global commands, then back to `0` |
 | `BGA_POLL_SECONDS` | No | How often to check for table changes (default: 15) |
 | `BGA_DB_PATH` | No | SQLite file path (default: `bga_bot.db`) |
