@@ -11,7 +11,7 @@ from discord.ext import tasks
 from .bga_client import BgaClient, BgaClientError, BgaNotPublicError, BgaTableUnavailableError
 from .database import Database
 from .i18n import tr
-from .models import LinkedUser, WatchSubscription
+from .models import LinkedUser, NOTIFY_FINAL, NOTIFY_RECAP, NOTIFY_TURN, WatchSubscription
 from .utils import build_table_url, format_game_name
 
 LOGGER = logging.getLogger(__name__)
@@ -21,6 +21,34 @@ LOGGER = logging.getLogger(__name__)
 class ActiveTurnMessage:
     message: discord.Message
     waiting_ids: list[str]
+
+
+class TurnDetailsView(discord.ui.View):
+    def __init__(
+        self,
+        *,
+        table_id: str,
+        table_url: str | None,
+        game_label: str,
+        all_players: dict[str, str],
+    ) -> None:
+        super().__init__(timeout=21600)  # 6 hours — message is deleted when turn changes anyway
+        self.table_id = table_id
+        self.table_url = table_url
+        self.game_label = game_label
+        self.all_players = dict(all_players)
+
+    @discord.ui.button(label="Show players", style=discord.ButtonStyle.secondary)
+    async def show_players(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        lines = [f"**{self.game_label}** (Table {self.table_id})"]
+        if self.table_url:
+            lines.append(self.table_url)
+        if self.all_players:
+            lines.append("")
+            lines.append("**Players in this game:**")
+            for name in sorted(self.all_players.values()):
+                lines.append(f"- {name}")
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
 class BgaMonitor:
@@ -37,6 +65,7 @@ class BgaMonitor:
         self._table_tasks: dict[str, asyncio.Task[None]] = {}
         self._active_turn_messages: dict[int, ActiveTurnMessage] = {}
         self._last_player_name_refresh_at: dict[str, float] = {}
+        self._last_moved_ids: dict[int, list[str]] = {}
         self.sync_tables.change_interval(seconds=max(5, poll_seconds))
 
     def start(self) -> None:
@@ -51,6 +80,7 @@ class BgaMonitor:
         self._table_tasks.clear()
         self._active_turn_messages.clear()
         self._last_player_name_refresh_at.clear()
+        self._last_moved_ids.clear()
 
     @tasks.loop(seconds=30)
     async def sync_tables(self) -> None:
@@ -275,6 +305,7 @@ class BgaMonitor:
         subscriptions: list[WatchSubscription],
         table_id: str,
     ) -> None:
+        announced: set[str] = set()
         for subscription in subscriptions:
             active_message = self._active_turn_messages.get(subscription.subscription_id)
             if active_message is not None:
@@ -286,6 +317,10 @@ class BgaMonitor:
                 if deleted:
                     self._active_turn_messages.pop(subscription.subscription_id, None)
 
+            if subscription.channel_id not in announced and (subscription.notification_flags & NOTIFY_FINAL):
+                await self._post_game_over_announcement(subscription, table_id)
+                announced.add(subscription.channel_id)
+
             self.database.remove_watch_subscription(
                 table_id=subscription.table_id,
                 guild_id=subscription.guild_id,
@@ -294,6 +329,94 @@ class BgaMonitor:
 
         self._table_tasks.pop(table_id, None)
         LOGGER.info(tr("table_finished_cleanup", table_id=table_id))
+
+    async def _post_game_over_announcement(
+        self,
+        subscription: WatchSubscription,
+        table_id: str,
+    ) -> None:
+        channel = await self._resolve_channel(subscription, table_id)
+        if channel is None:
+            return
+
+        game_label = format_game_name(subscription.game_name)
+        player_names = subscription.player_names
+
+        result: dict = {}
+        if subscription.table_url and subscription.base_url:
+            table_info = self.bga_client.build_public_table_info(
+                table_id=subscription.table_id,
+                table_url=subscription.table_url,
+                base_url=subscription.base_url,
+                gameserver=subscription.gameserver or "",
+                game_name=subscription.game_name or game_label,
+            )
+            result = await asyncio.to_thread(self.bga_client.fetch_public_table_result, table_info)
+
+        lines = [f"🎉 Game over! **{game_label}** (Table {table_id}) has ended!"]
+
+        scores = self._extract_scores(result, player_names)
+        if scores:
+            lines.append("")
+            lines.append("🏆 **Final scores:**")
+            medals = ["🥇", "🥈", "🥉"]
+            for i, (name, score) in enumerate(scores):
+                medal = medals[i] if i < len(medals) else "▪"
+                lines.append(f"{medal} **{name}** - {score}")
+
+        if not scores and player_names:
+            names = ", ".join(sorted(player_names.values()))
+            lines.append(f"Well played, {names}!")
+
+        lines.append("")
+        lines.append("🦄 ⭐ 🎉")
+
+        try:
+            await channel.send("\n".join(lines))
+        except discord.DiscordException as exc:
+            LOGGER.error("Failed to post game-over announcement for table %s: %s", table_id, exc)
+
+    @staticmethod
+    def _extract_scores(
+        result: dict,
+        player_names: dict[str, str],
+    ) -> list[tuple[str, str]]:
+        """Tries common BGA result shapes. Returns list of (name, score_str) sorted by rank."""
+        if not result:
+            return []
+
+        # Shape 1: result["player"] = {"player_id": {"score": x, "rank": y, "name": z}}
+        player_block = result.get("player")
+        if isinstance(player_block, dict):
+            entries = []
+            for pid, info in player_block.items():
+                if not isinstance(info, dict):
+                    continue
+                name = str(info.get("name") or info.get("player_name") or player_names.get(str(pid), str(pid)))
+                score = info.get("score") or info.get("points") or info.get("result")
+                rank = info.get("rank") or info.get("position") or 999
+                try:
+                    rank = int(rank)
+                except (TypeError, ValueError):
+                    rank = 999
+                entries.append((rank, name, str(score) if score is not None else None))
+            entries.sort(key=lambda x: x[0])
+            return [(name, score) for _, name, score in entries if score is not None]
+
+        # Shape 2: result["ranking"] = [{"name": x, "score": y}, ...]
+        ranking = result.get("ranking")
+        if isinstance(ranking, list):
+            entries = []
+            for item in ranking:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or item.get("player_name") or "")
+                score = item.get("score") or item.get("points")
+                if name:
+                    entries.append((name, str(score) if score is not None else None))
+            return [(name, score) for name, score in entries if score is not None]
+
+        return []
 
     async def _handle_waiting_ids_transition(
         self,
@@ -309,6 +432,9 @@ class BgaMonitor:
         previous_set = set(previous_waiting_ids)
         waiting_set = set(waiting_ids)
         is_same_turn_progress = bool(previous_waiting_ids) and waiting_set.issubset(previous_set)
+        just_moved_ids = [pid for pid in previous_waiting_ids if pid not in waiting_set]
+        if just_moved_ids:
+            self._last_moved_ids[subscription.subscription_id] = just_moved_ids
 
         if active_message is not None and not waiting_ids:
             deleted = await self._delete_turn_message(
@@ -328,6 +454,7 @@ class BgaMonitor:
                 waiting_ids=waiting_ids,
                 player_names=player_names,
                 game_label=game_label,
+                just_moved_ids=just_moved_ids,
             )
             if edited:
                 active_message.waiting_ids = list(waiting_ids)
@@ -351,6 +478,7 @@ class BgaMonitor:
             waiting_ids=waiting_ids,
             player_names=player_names,
             game_label=game_label,
+            just_moved_ids=just_moved_ids,
         )
         if message is not None:
             self._active_turn_messages[subscription.subscription_id] = ActiveTurnMessage(
@@ -366,7 +494,11 @@ class BgaMonitor:
         waiting_ids: list[str],
         player_names: dict[str, str],
         game_label: str,
+        just_moved_ids: list[str] | None = None,
     ) -> discord.Message | None:
+        if not (subscription.notification_flags & NOTIFY_TURN):
+            return None
+
         channel = await self._resolve_channel(subscription, table_id)
         if channel is None:
             return None
@@ -377,10 +509,17 @@ class BgaMonitor:
             table_id=table_id,
             subscription=subscription,
             game_label=game_label,
+            just_moved_ids=just_moved_ids,
+        )
+        view = TurnDetailsView(
+            table_id=table_id,
+            table_url=subscription.table_url,
+            game_label=game_label,
+            all_players=player_names,
         )
 
         try:
-            message = await channel.send(content)
+            message = await channel.send(content, view=view)
             LOGGER.info(tr("notification_sent", table_id=table_id, waiting_ids=waiting_ids))
             return message
         except discord.DiscordException as exc:
@@ -403,9 +542,10 @@ class BgaMonitor:
         waiting_ids: list[str],
         player_names: dict[str, str],
         game_label: str,
+        just_moved_ids: list[str] | None = None,
     ) -> bool:
         channel = await self._resolve_channel(subscription, table_id)
-        if channel is None or not isinstance(channel, discord.TextChannel):
+        if channel is None:
             return False
 
         message = active_message.message
@@ -416,9 +556,16 @@ class BgaMonitor:
             table_id=table_id,
             subscription=subscription,
             game_label=game_label,
+            just_moved_ids=just_moved_ids,
+        )
+        view = TurnDetailsView(
+            table_id=table_id,
+            table_url=subscription.table_url,
+            game_label=game_label,
+            all_players=player_names,
         )
         try:
-            await message.edit(content=content)
+            await message.edit(content=content, view=view)
             LOGGER.info(tr("turn_message_updated", table_id=table_id, waiting_ids=waiting_ids))
             return True
         except discord.NotFound:
@@ -436,7 +583,7 @@ class BgaMonitor:
         table_id: str,
     ) -> bool:
         channel = await self._resolve_channel(subscription, table_id)
-        if channel is None or not isinstance(channel, discord.TextChannel):
+        if channel is None:
             return False
 
         message = active_message.message
@@ -456,12 +603,21 @@ class BgaMonitor:
         subscriptions: list[WatchSubscription],
         table_id: str,
     ) -> None:
+        """On startup, recover the most recent bot turn message per subscription into
+        _active_turn_messages so the bot doesn't repost an unchanged turn. Any duplicate
+        messages for the same table in the same channel are deleted."""
         if self.bot.user is None:
             return
 
         seen_channels: set[str] = set()
         deleted_count = 0
-        table_markers = {f"{tr('label_table')} : {table_id}", f"{tr('label_table')}: {table_id}", f"Table : {table_id}", f"Table: {table_id}"}
+        table_markers = {
+            f"{tr('label_table')} : {table_id}",
+            f"{tr('label_table')}: {table_id}",
+            f"Table : {table_id}",
+            f"Table: {table_id}",
+            f"Table {table_id}:",
+        }
 
         for subscription in subscriptions:
             if subscription.channel_id in seen_channels:
@@ -473,25 +629,37 @@ class BgaMonitor:
                 continue
 
             try:
+                recovered: discord.Message | None = None
                 async for message in channel.history(limit=100):
                     if message.author.id != self.bot.user.id:
                         continue
                     if not any(marker in message.content for marker in table_markers):
                         continue
-                    try:
-                        await message.delete()
-                        deleted_count += 1
-                    except discord.NotFound:
-                        continue
-                    except discord.DiscordException as exc:
-                        LOGGER.warning(
-                            tr(
-                                "stale_message_delete_failed",
-                                table_id=table_id,
-                                channel_id=subscription.channel_id,
-                                error=exc,
+                    if recovered is None:
+                        recovered = message
+                    else:
+                        try:
+                            await message.delete()
+                            deleted_count += 1
+                        except discord.NotFound:
+                            pass
+                        except discord.DiscordException as exc:
+                            LOGGER.warning(
+                                tr(
+                                    "stale_message_delete_failed",
+                                    table_id=table_id,
+                                    channel_id=subscription.channel_id,
+                                    error=exc,
+                                )
                             )
-                        )
+
+                if recovered is not None and subscription.subscription_id not in self._active_turn_messages:
+                    self._active_turn_messages[subscription.subscription_id] = ActiveTurnMessage(
+                        message=recovered,
+                        waiting_ids=list(subscription.last_waiting_ids),
+                    )
+                    LOGGER.info("Startup: recovered existing turn message for subscription %s (table %s)", subscription.subscription_id, table_id)
+
             except discord.DiscordException as exc:
                 LOGGER.warning(
                     tr(
@@ -513,6 +681,7 @@ class BgaMonitor:
         table_id: str,
         subscription: WatchSubscription,
         game_label: str,
+        just_moved_ids: list[str] | None = None,
     ) -> str:
         observed_waiting_players = {
             player_id: player_names.get(player_id, "")
@@ -528,27 +697,25 @@ class BgaMonitor:
             for user in linked_users
             if user.bga_player_name
         }
-        waiting_descriptions = ", ".join(
-            self._format_waiting_player(
-                player_id,
-                player_names,
-                linked_users_by_bga_id,
-                linked_users_by_name,
-            )
-            for player_id in waiting_ids
-        )
+        mentions = [
+            self._format_player_mention(pid, player_names, linked_users_by_bga_id, linked_users_by_name)
+            for pid in waiting_ids
+        ]
+        if len(mentions) == 1:
+            callout = f"⏳ {mentions[0]}, you're up"
+        else:
+            callout = f"⏳ {', '.join(mentions)} - you're all up"
 
-        return tr(
-            "turn_message_content",
-            game_label=tr("label_game"),
-            game_name=game_label,
-            table_label=tr("label_table"),
-            table_id=table_id,
-            players_label=tr("label_players_still_waiting"),
-            players=waiting_descriptions or tr("value_none"),
-            url_label=tr("label_url"),
-            table_url=subscription.table_url or build_table_url(table_id),
-        )
+        table_url = subscription.table_url or build_table_url(table_id)
+        lines = [f"{callout} in **{game_label}**!"]
+
+        include_recap = (subscription.notification_flags & NOTIFY_RECAP) and just_moved_ids
+        if include_recap:
+            moved_names = ", ".join(player_names.get(pid, pid) for pid in just_moved_ids)
+            lines.append(f"✅ {moved_names} just completed their turn.")
+
+        lines.append(f"Table {table_id}: {table_url}")
+        return "\n".join(lines)
 
     async def _refresh_missing_player_names(
         self,
