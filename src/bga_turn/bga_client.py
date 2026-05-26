@@ -207,6 +207,20 @@ class BgaClient:
         )
         return is_finished
 
+    def fetch_public_table_result(self, table_info: BgaTableInfo) -> dict[str, Any]:
+        """Returns the raw result dict from tableinfos for a finished game, or {} on failure."""
+        try:
+            data = self._fetch_public_tableinfos_data(
+                table_id=table_info.table_id,
+                base_url=table_info.base_url,
+            )
+            result = data.get("result")
+            LOGGER.debug("BGA_RESULT table=%s result=%s", table_info.table_id, json.dumps(result))
+            return result if isinstance(result, dict) else {}
+        except BgaClientError as exc:
+            LOGGER.debug("Could not fetch table result for %s: %s", table_info.table_id, exc)
+            return {}
+
     def fetch_public_player_names(self, table_info: BgaTableInfo) -> dict[str, str]:
         try:
             response = self._http.get(table_info.table_url, timeout=self.timeout)
@@ -933,6 +947,7 @@ class BgaClient:
 
             event_type = str(event.get("type") or "")
             event_args = event.get("args")
+            LOGGER.debug("BGA_EVENT type=%s log=%r args=%s", event_type, event.get("log"), json.dumps(event_args) if event_args is not None else "null")
             self._collect_player_names(player_names, event)
 
             if event_type == "gameStateMultipleActiveUpdate" and isinstance(event_args, list):
