@@ -12,6 +12,7 @@ Runs on a server or VM you control. Connects to BGA in spectator mode (no BGA lo
   2. Click **Reset Token** and copy the value into `DISCORD_TOKEN` in your `.env`.
   3. To invite the bot to your server, go to **Installation** (or **OAuth2 > URL Generator**), enable the `bot` and `applications.commands` scopes, and grant these permissions: **View Channels**, **Send Messages**, **Embed Links**, **Read Message History**. No privileged intents are required.
   4. Copy the generated URL, open it in a browser, and select your server. You need the **Manage Server** permission on that server to add a bot. If you don't see your server in the list, you don't have that permission.
+- A [Board Game Arena](https://boardgamearena.com) account with an active game. When creating a table, set the visibility to **Public** so the bot can connect in spectator mode. Private tables are not accessible to spectators and the bot will not be able to watch them.
 - A server or VM that stays online (e.g. Google Cloud e2-micro free tier, Oracle Cloud free tier, Railway)
 
 ## Setup
