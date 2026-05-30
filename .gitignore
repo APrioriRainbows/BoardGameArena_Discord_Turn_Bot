@@ -12,3 +12,12 @@ build/
 dist/
 *.egg-info/
 .coverage
+
+# Local working notes (not tracked)
+notes.md
+
+# Log files
+*.log
+
+# Local TODO (not tracked)
+TODO.md
