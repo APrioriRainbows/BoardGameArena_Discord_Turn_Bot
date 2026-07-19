@@ -17,6 +17,7 @@ from websockets.exceptions import InvalidStatus
 
 from .i18n import tr
 from .models import BgaNotificationState, BgaTableInfo
+from .utils import BASE_URL
 
 LOGGER = logging.getLogger(__name__)
 
@@ -119,6 +120,7 @@ class BgaClient:
         r'"multiactive"\s*:\s*\[(?P<ids>[^\]]*)\]',
         re.DOTALL,
     )
+    _REQUEST_TOKEN_PATTERN = re.compile(r"requestToken:\s*'(?P<token>[a-f0-9]+)'")
     _CENTRIFUGE_WS_PATTERN = re.compile(
         r'"transport"\s*:\s*"websocket"\s*,\s*"endpoint"\s*:\s*"(?P<url>wss[^"]+)"',
         re.DOTALL,
@@ -180,6 +182,7 @@ class BgaClient:
         data = self._fetch_public_tableinfos_data(
             table_id=table_info.table_id,
             base_url=table_info.base_url,
+            referer_url=table_info.table_url,
         )
         status_value = str(data.get("status") or "").strip().lower()
         result = data.get("result")
@@ -213,6 +216,7 @@ class BgaClient:
             data = self._fetch_public_tableinfos_data(
                 table_id=table_info.table_id,
                 base_url=table_info.base_url,
+                referer_url=table_info.table_url,
             )
             result = data.get("result")
             LOGGER.debug("BGA_RESULT table=%s result=%s", table_info.table_id, json.dumps(result))
@@ -234,14 +238,55 @@ class BgaClient:
 
         return self._extract_player_names_from_html(response.text)
 
-    def _fetch_public_tableinfos_data(self, *, table_id: str, base_url: str) -> dict[str, Any]:
+    def _fetch_request_token(self, page_url: str) -> tuple[str, str]:
+        """Loads a public BGA page and returns (request_token, final_url)."""
+        try:
+            response = self._http.get(page_url, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise BgaClientError(
+                tr("error_load_public_page", table_url=page_url, error=exc)
+            ) from exc
+        if response.status_code >= 400:
+            raise BgaClientError(tr("error_public_page_http", status_code=response.status_code))
+        match = self._REQUEST_TOKEN_PATTERN.search(response.text)
+        if match is None:
+            raise BgaClientError(tr("error_missing_request_token"))
+        return match.group("token"), response.url
+
+    def resolve_table_location(self, table_id: str) -> tuple[str, str]:
+        """Resolves (gameserver, game_name) for a bare table id, e.g. from a
+        `tableview?table=...` link that doesn't encode the game path itself."""
+        tableview_url = f"{BASE_URL}/tableview?table={table_id}"
+        data = self._fetch_public_tableinfos_data(
+            table_id=table_id,
+            base_url=BASE_URL,
+            referer_url=tableview_url,
+        )
+        gameserver = str(data.get("gameserver") or "").strip()
+        game_name = str(data.get("game_name") or "").strip()
+        if not gameserver or not game_name:
+            raise BgaClientError(tr("error_table_location_unresolved", table_id=table_id))
+        return gameserver, game_name
+
+    def _fetch_public_tableinfos_data(
+        self, *, table_id: str, base_url: str, referer_url: str
+    ) -> dict[str, Any]:
+        token, final_referer_url = self._fetch_request_token(referer_url)
         endpoint = (
             f"{base_url}/table/table/tableinfos.html"
             f"?id={table_id}&nosuggest=true&table={table_id}"
             f"&noerrortracking=true&dojo.preventCache={int(time.time() * 1000)}"
         )
         try:
-            response = self._http.get(endpoint, timeout=self.timeout)
+            response = self._http.get(
+                endpoint,
+                timeout=self.timeout,
+                headers={
+                    "X-Requested-With": "XMLHttpRequest",
+                    "X-Request-Token": token,
+                    "Referer": final_referer_url,
+                },
+            )
         except requests.RequestException as exc:
             raise BgaClientError(tr("error_load_tableinfos", table_id=table_id, error=exc)) from exc
 

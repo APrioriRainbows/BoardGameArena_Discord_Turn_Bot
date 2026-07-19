@@ -12,7 +12,15 @@ from .database import Database
 from .i18n import tr
 from .models import NOTIFY_FINAL, NOTIFY_RECAP, NOTIFY_TURN
 from .monitor import BgaMonitor, TurnDetailsView
-from .utils import build_table_url, format_game_name, parse_public_table_url, parse_table_id
+from .utils import (
+    BASE_URL,
+    MissingGamePathError,
+    build_table_url,
+    format_game_name,
+    parse_public_table_url,
+    parse_table_id,
+    parse_table_id_from_public_url,
+)
 
 
 class PlayerLinkSelect(discord.ui.UserSelect):
@@ -404,10 +412,33 @@ class AddGameModal(discord.ui.Modal, title="Watch a new game"):
         self.bga_client = bga_client
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw_url = self.url.value.strip()
+        deferred = False
         try:
-            table_id, table_url, base_url, gameserver, game_name = parse_public_table_url(
-                self.url.value.strip()
-            )
+            table_id, table_url, base_url, gameserver, game_name = parse_public_table_url(raw_url)
+        except MissingGamePathError:
+            # Newer BGA links (e.g. `tableview?table=...`) don't encode the game path
+            # themselves; resolve it via BGA's tableinfos endpoint instead.
+            try:
+                table_id = parse_table_id_from_public_url(raw_url)
+            except ValueError as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            deferred = True
+            try:
+                gameserver, game_name = await asyncio.to_thread(
+                    self.bga_client.resolve_table_location, table_id
+                )
+            except BgaClientError as exc:
+                await interaction.followup.send(
+                    tr("error_watch_verify_failed", table_id=table_id, error=exc),
+                    ephemeral=True,
+                )
+                return
+            base_url = BASE_URL
+            table_url = f"{base_url}/{gameserver}/{game_name}?table={table_id}"
         except ValueError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
@@ -425,11 +456,14 @@ class AddGameModal(discord.ui.Modal, title="Watch a new game"):
             monitor=self.monitor,
             bga_client=self.bga_client,
         )
-        await interaction.response.send_message(
-            f"Set up **{game_label}** (Table {table_id}):\nPick a channel and choose which notifications to enable, then click **Start watching**.",
-            view=view,
-            ephemeral=True,
+        message = (
+            f"Set up **{game_label}** (Table {table_id}):\n"
+            "Pick a channel and choose which notifications to enable, then click **Start watching**."
         )
+        if deferred:
+            await interaction.followup.send(message, view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, view=view, ephemeral=True)
 
 
 class BgaCommands(commands.Cog):

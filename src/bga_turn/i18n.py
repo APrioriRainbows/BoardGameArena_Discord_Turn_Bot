@@ -79,6 +79,8 @@ _MESSAGES: dict[str, str] = {
     "error_tableinfos_unexpected": "Unexpected public tableinfos payload for table {table_id}.",
     "error_tableinfos_unexpected_payload": "Unexpected public tableinfos payload for table {table_id}: status={status} exception={exception} error={error}",
     "error_tableinfos_missing_data": "Public tableinfos does not contain a valid `data` block for table {table_id}.",
+    "error_missing_request_token": "Could not extract the BGA request token from the page.",
+    "error_table_location_unresolved": "Could not resolve the game and gameserver for table {table_id} from tableinfos.",
     "error_websocket_closed": "Websocket connection closed: {error}",
     "error_websocket_handshake_rejected": "BGA websocket rejected the handshake for table {table_id}: HTTP {status_code} (likely a transient BGA/Cloudflare outage).",
     "error_websocket_handshake_timeout": "BGA websocket handshake timed out for table {table_id} on {websocket_url}.",

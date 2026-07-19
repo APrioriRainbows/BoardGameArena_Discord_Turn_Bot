@@ -35,7 +35,13 @@ def parse_table_id(value: str) -> str:
     raise ValueError(tr("error_invalid_table_id"))
 
 
-def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
+class MissingGamePathError(ValueError):
+    """Raised when a BGA URL has a valid table id but no /{gameserver}/{game_name} path
+    (e.g. the newer `tableview?table=...` link format), so it needs to be resolved
+    separately via BgaClient.resolve_table_location instead of parsed from the URL."""
+
+
+def _parse_table_id_from_full_url(value: str) -> tuple[str, list[str]]:
     candidate = value.strip()
     if not candidate:
         raise ValueError(tr("error_empty_table_url"))
@@ -50,13 +56,24 @@ def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
     table_id = table_values[0]
 
     path_parts = [part for part in parsed.path.split("/") if part]
+    return table_id, path_parts
+
+
+def parse_table_id_from_public_url(value: str) -> str:
+    table_id, _path_parts = _parse_table_id_from_full_url(value)
+    return table_id
+
+
+def parse_public_table_url(value: str) -> tuple[str, str, str, str, str]:
+    table_id, path_parts = _parse_table_id_from_full_url(value)
+
     if len(path_parts) < 2:
-        raise ValueError(tr("error_url_missing_public_path"))
+        raise MissingGamePathError(tr("error_url_missing_public_path"))
 
     gameserver = path_parts[-2].strip()
     game_name = path_parts[-1].strip()
     if not gameserver or not game_name:
-        raise ValueError(tr("error_url_missing_game_path"))
+        raise MissingGamePathError(tr("error_url_missing_game_path"))
 
     base_url = BASE_URL
     normalized_url = f"{base_url}/{gameserver}/{game_name}?table={table_id}"

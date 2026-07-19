@@ -69,3 +69,21 @@ All commands are under `/bga`. Run `/bga info` in Discord for full usage details
 - BGA tables must be set to **public** (spectator mode on) for the bot to see them
 - The bot must keep running to keep watching tables
 - Final score extraction is best-effort; use `/bga logs` if scores are missing after a game ends
+
+## Changelog
+
+### 2026-07-19: BGA now requires a request token for table lookups
+
+BGA changed the URL shown in the browser for an in-progress game from the old
+`boardgamearena.com/{gameserver}/{game_name}?table={id}` form to a bare
+`boardgamearena.com/tableview?table={id}` link that doesn't encode the game itself.
+The bot now handles both: pasting either URL into `/bga configure` works.
+
+Resolving a `tableview` link requires an extra step, because BGA also started
+requiring an anti-CSRF `x-request-token` (scraped from the page's own JavaScript) on
+the `tableinfos.html` lookup that maps a table ID to its game. Previously that
+endpoint accepted anonymous requests with no token at all; without the token it now
+fails with "Invalid session information," which looks like an auth requirement but
+isn't one — no BGA login is needed, the token is enough. This also fixes the
+existing (opt-in) `BGA_ENABLE_TABLEINFOS_FALLBACK` end-of-game check, which used the
+same endpoint and was silently broken by this change.
