@@ -11,7 +11,7 @@ from discord.ext import tasks
 from .bga_client import BgaClient, BgaClientError, BgaNotPublicError, BgaTableUnavailableError
 from .database import Database
 from .i18n import tr
-from .models import LinkedUser, NOTIFY_FINAL, NOTIFY_RECAP, NOTIFY_TURN, WatchSubscription
+from .models import LinkedUser, NOTIFY_DETAIL, NOTIFY_FINAL, NOTIFY_RECAP, NOTIFY_TURN, WatchSubscription
 from .utils import build_table_url, format_game_name
 
 LOGGER = logging.getLogger(__name__)
@@ -242,6 +242,9 @@ class BgaMonitor:
             current_player_names.update(state.player_names)
             game_name = subscription.game_name or fallback_game_name
 
+            if state.move_descriptions and subscription.is_initialized and (subscription.notification_flags & NOTIFY_DETAIL):
+                await self._post_move_log(subscription, table_id, state.move_descriptions)
+
             if not subscription.is_initialized:
                 self.database.update_watch_state(
                     subscription_id=subscription.subscription_id,
@@ -375,6 +378,36 @@ class BgaMonitor:
             await channel.send("\n".join(lines))
         except discord.DiscordException as exc:
             LOGGER.error("Failed to post game-over announcement for table %s: %s", table_id, exc)
+
+    async def _post_move_log(
+        self,
+        subscription: WatchSubscription,
+        table_id: str,
+        move_descriptions: list[str],
+    ) -> None:
+        channel = await self._resolve_channel(subscription, table_id)
+        if channel is None:
+            return
+
+        lines = [f"📜 {description}" for description in move_descriptions]
+        chunks: list[str] = []
+        current_chunk: list[str] = []
+        current_length = 0
+        for line in lines:
+            if current_chunk and current_length + len(line) + 1 > 1900:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = []
+                current_length = 0
+            current_chunk.append(line)
+            current_length += len(line) + 1
+        if current_chunk:
+            chunks.append("\n".join(current_chunk))
+
+        try:
+            for chunk in chunks:
+                await channel.send(chunk)
+        except discord.DiscordException as exc:
+            LOGGER.error("Failed to post move log for table %s: %s", table_id, exc)
 
     @staticmethod
     def _extract_scores(

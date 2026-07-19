@@ -13,7 +13,8 @@ class LinkedUser:
 NOTIFY_TURN: int = 1   # "you're up!" turn notification
 NOTIFY_RECAP: int = 2  # "X just completed their turn" line
 NOTIFY_FINAL: int = 4  # game-over results announcement
-NOTIFY_ALL: int = NOTIFY_TURN | NOTIFY_RECAP | NOTIFY_FINAL
+NOTIFY_DETAIL: int = 8  # detailed play-by-play move log
+NOTIFY_ALL: int = NOTIFY_TURN | NOTIFY_RECAP | NOTIFY_FINAL | NOTIFY_DETAIL
 
 
 @dataclass(slots=True)
@@ -51,3 +52,4 @@ class BgaNotificationState:
     source: str = "unchanged"
     details: dict[str, str] = field(default_factory=dict)
     is_game_finished: bool = False
+    move_descriptions: list[str] = field(default_factory=list)

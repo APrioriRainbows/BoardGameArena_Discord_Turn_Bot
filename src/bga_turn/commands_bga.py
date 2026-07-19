@@ -10,7 +10,7 @@ from discord.ext import commands
 from .bga_client import BgaClient, BgaClientError, BgaNotPublicError
 from .database import Database
 from .i18n import tr
-from .models import NOTIFY_FINAL, NOTIFY_RECAP, NOTIFY_TURN
+from .models import NOTIFY_DETAIL, NOTIFY_FINAL, NOTIFY_RECAP, NOTIFY_TURN
 from .monitor import BgaMonitor, TurnDetailsView
 from .utils import (
     BASE_URL,
@@ -169,7 +169,7 @@ class GameSettingsView(discord.ui.View):
         notif_select = discord.ui.Select(
             placeholder="Notification types (all on by default)",
             min_values=0,
-            max_values=3,
+            max_values=4,
             row=1,
             options=[
                 discord.SelectOption(
@@ -189,6 +189,12 @@ class GameSettingsView(discord.ui.View):
                     value=str(NOTIFY_FINAL),
                     description="🎉 Post scores when the game ends",
                     default=bool(existing_flags & NOTIFY_FINAL),
+                ),
+                discord.SelectOption(
+                    label="Detailed move log",
+                    value=str(NOTIFY_DETAIL),
+                    description="📜 Post a play-by-play of each move (opt-in, off by default)",
+                    default=bool(existing_flags & NOTIFY_DETAIL),
                 ),
             ],
         )

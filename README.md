@@ -70,6 +70,13 @@ All commands are under `/bga`. Run `/bga info` in Discord for full usage details
 - The bot must keep running to keep watching tables
 - Final score extraction is best-effort; use `/bga logs` if scores are missing after a game ends
 
+### Notification types (`/bga configure`)
+
+- **Turn notifications** - ping when it's your turn (on by default)
+- **Turn recap** - note who just completed their turn (on by default)
+- **Final results** - post scores when the game ends (on by default)
+- **Detailed move log** - play-by-play of each move as it happens, e.g. "Kellidros moves worker (8,1) to (6,1)" (off by default, since it's chattier than the others)
+
 ## Changelog
 
 ### 2026-07-19: BGA now requires a request token for table lookups

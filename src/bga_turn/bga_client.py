@@ -121,6 +121,7 @@ class BgaClient:
         re.DOTALL,
     )
     _REQUEST_TOKEN_PATTERN = re.compile(r"requestToken:\s*'(?P<token>[a-f0-9]+)'")
+    _LOG_PLACEHOLDER_PATTERN = re.compile(r"\$\{(\w+)\}")
     _CENTRIFUGE_WS_PATTERN = re.compile(
         r'"transport"\s*:\s*"websocket"\s*,\s*"endpoint"\s*:\s*"(?P<url>wss[^"]+)"',
         re.DOTALL,
@@ -985,6 +986,7 @@ class BgaClient:
         waiting_ids = list(current_waiting_ids)
         source: str | None = None
         details: dict[str, str] = {}
+        move_descriptions: list[str] = []
 
         for event in events:
             if not isinstance(event, dict):
@@ -994,6 +996,10 @@ class BgaClient:
             event_args = event.get("args")
             LOGGER.debug("BGA_EVENT type=%s log=%r args=%s", event_type, event.get("log"), json.dumps(event_args) if event_args is not None else "null")
             self._collect_player_names(player_names, event)
+
+            description = self._render_log_template(event.get("log"), event_args)
+            if description:
+                move_descriptions.append(description)
 
             if event_type == "gameStateMultipleActiveUpdate" and isinstance(event_args, list):
                 waiting_ids = [str(player_id) for player_id in event_args if str(player_id).isdigit()]
@@ -1070,6 +1076,7 @@ class BgaClient:
                             source=source,
                             details=details,
                             is_game_finished=True,
+                            move_descriptions=move_descriptions,
                         )
                     ]
 
@@ -1086,6 +1093,7 @@ class BgaClient:
                         source=source,
                         details=details,
                         is_game_finished=True,
+                        move_descriptions=move_descriptions,
                     )
                 ]
 
@@ -1099,6 +1107,19 @@ class BgaClient:
                         source="player_names_update",
                         details={"probe": "packet_names_only"},
                         is_game_finished=False,
+                        move_descriptions=move_descriptions,
+                    )
+                ]
+            if move_descriptions:
+                return [
+                    BgaNotificationState(
+                        highest_packet_id=packet_id,
+                        waiting_ids=None,
+                        player_names=player_names,
+                        source="move_log",
+                        details={"probe": "move_descriptions_only"},
+                        is_game_finished=False,
+                        move_descriptions=move_descriptions,
                     )
                 ]
             return []
@@ -1111,6 +1132,7 @@ class BgaClient:
                 source=source,
                 details=details,
                 is_game_finished=False,
+                move_descriptions=move_descriptions,
             )
         ]
 
@@ -1145,6 +1167,29 @@ class BgaClient:
         if not candidate.isdigit():
             return None
         return candidate
+
+    @classmethod
+    def _render_log_template(cls, log: Any, args: Any) -> str:
+        """Renders a BGA move-log template (e.g. "${faction_name} moves ${unit_name}...")
+        by substituting its ${key} placeholders from args, recursing into any nested
+        {"log": ..., "args": ...} values (BGA composes sub-descriptions this way)."""
+        log_str = str(log or "").strip()
+        if not log_str:
+            return ""
+        args_dict = args if isinstance(args, dict) else {}
+
+        def resolve(match: re.Match[str]) -> str:
+            value = args_dict.get(match.group(1))
+            if isinstance(value, dict) and "log" in value:
+                return cls._render_log_template(value.get("log"), value.get("args"))
+            if value is None:
+                return ""
+            return str(value)
+
+        rendered = cls._LOG_PLACEHOLDER_PATTERN.sub(resolve, log_str)
+        unescaped = html_lib.unescape(rendered)
+        without_tags = cls._HTML_TAG_PATTERN.sub("", unescaped)
+        return re.sub(r"\s+", " ", without_tags).strip()
 
     @classmethod
     def _clean_player_name(cls, value: Any) -> str:
