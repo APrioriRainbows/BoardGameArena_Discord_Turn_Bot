@@ -91,6 +91,11 @@ requiring an anti-CSRF `x-request-token` (scraped from the page's own JavaScript
 the `tableinfos.html` lookup that maps a table ID to its game. Previously that
 endpoint accepted anonymous requests with no token at all; without the token it now
 fails with "Invalid session information," which looks like an auth requirement but
-isn't one — no BGA login is needed, the token is enough. This also fixes the
+isn't one: no BGA login is needed, the token is enough. This also fixes the
 existing (opt-in) `BGA_ENABLE_TABLEINFOS_FALLBACK` end-of-game check, which used the
 same endpoint and was silently broken by this change.
+
+`tableinfos.html` doesn't hand back a URL, it returns `gameserver` and `game_name`
+as separate JSON fields. The bot reconstructs the old-style URL itself by
+formatting those two values plus the table ID back into the original pattern
+(`{base_url}/{gameserver}/{game_name}?table={table_id}`).
